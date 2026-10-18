@@ -1,0 +1,12 @@
+# Screenshot artifacts from html skill
+_shots/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
