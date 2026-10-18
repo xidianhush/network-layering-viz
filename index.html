@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>网络分层可视化 · Network Layering Visualizer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='10' y='15' width='80' height='12' rx='3' fill='%2310b981'/><rect x='10' y='35' width='80' height='12' rx='3' fill='%23f59e0b'/><rect x='10' y='55' width='80' height='12' rx='3' fill='%23ef4444'/><rect x='10' y='75' width='80' height='12' rx='3' fill='%238b5cf6'/></svg>">
+<style>
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --c-app: #10b981;
+  --c-tcp: #f59e0b;
+  --c-ip: #ef4444;
+  --c-eth: #8b5cf6;
+  --c-phy: #64748b;
+  --bg: #f1f5f9;
+  --card: #ffffff;
+  --ink: #0f172a;
+  --ink-2: #475569;
+  --ink-3: #94a3b8;
+  --line: #e2e8f0;
+  --accent: #3b82f6;
+  --radius: 12px;
+}
+html { font-size: 15px; scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.6;
+  padding-bottom: 60px;
+}
+.mono { font-family: "SF Mono", "Fira Code", "Cascadia Code", Consolas, monospace; }
+
+/* ===== Header ===== */
+.site-header {
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  padding: 20px 24px;
+  text-align: center;
+}
+.site-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.site-header h1 .en { color: var(--ink-3); font-weight: 400; font-size: 0.85rem; margin-left: 8px; }
+.site-header p { color: var(--ink-2); font-size: 0.9rem; margin-top: 4px; }
+
+/* ===== Layout ===== */
+.container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+
+/* ===== Main Viz Area ===== */
+.viz-wrap {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .viz-wrap { grid-template-columns: 1fr; }
+}
+
+/* ===== Layer Stack ===== */
+.stack-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  padding: 20px;
+}
+.stack-title {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 2px solid var(--line);
+  margin-bottom: 6px;
+  transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s, background 0.3s;
+  cursor: pointer;
+  min-height: 48px;
+}
+.layer-row:last-child { margin-bottom: 0; }
+.layer-row:hover { border-color: #cbd5e1; background: #f8fafc; }
+.layer-row.active {
+  border-color: var(--accent);
+  box-shadow: 0 4px 20px rgba(59,130,246,0.15);
+  transform: scale(1.015);
+  background: #eff6ff;
+}
+.layer-label {
+  width: 90px;
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.layer-label .en { display: block; font-size: 0.7rem; color: var(--ink-3); font-weight: 400; }
+.packet-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-height: 32px;
+  min-width: 0;
+  overflow: hidden;
+}
+.seg {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #fff;
+  font-weight: 500;
+  opacity: 0;
+  transform: translateX(-16px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+}
+.seg.show { opacity: 1; transform: translateX(0); }
+.seg:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+}
+.seg-app { background: var(--c-app); }
+.seg-tcp { background: var(--c-tcp); }
+.seg-ip  { background: var(--c-ip); }
+.seg-eth { background: var(--c-eth); }
+.seg-phy { background: var(--c-phy); letter-spacing: 2px; font-family: "SF Mono", Consolas, monospace; font-size: 0.75rem; }
+
+/* Direction arrow between layers */
+.dir-arrow {
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 0.7rem;
+  margin: 1px 0;
+  height: 14px;
+  line-height: 14px;
+}
+
+/* ===== Controls ===== */
+.controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.btn {
+  padding: 9px 18px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #2563eb; }
+.btn-secondary { background: #fff; color: var(--ink-2); border: 1.5px solid var(--line); }
+.btn-secondary:hover { border-color: var(--ink-3); color: var(--ink); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:disabled:hover { transform: none; }
+
+/* ===== Detail Panel ===== */
+.detail-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  padding: 20px;
+  position: sticky;
+  top: 20px;
+  min-width: 0;
+  overflow: hidden;
+}
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.detail-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.detail-title { font-size: 1.1rem; font-weight: 700; }
+.detail-sub { font-size: 0.78rem; color: var(--ink-3); }
+.detail-section { margin-bottom: 14px; }
+.detail-section h4 {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.detail-section p { font-size: 0.85rem; color: var(--ink-2); }
+.protocol-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.proto-tag {
+  background: #f1f5f9;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-family: "SF Mono", Consolas, monospace;
+  color: var(--ink);
+}
+.data-unit {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* Header field diagram */
+.field-diagram {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.field-row {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.7rem;
+}
+.field-row:last-child { border-bottom: none; }
+.field-cell {
+  padding: 6px 4px;
+  text-align: center;
+  color: #fff;
+  font-weight: 500;
+  border-right: 1px solid rgba(255,255,255,0.3);
+  line-height: 1.3;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.68rem;
+}
+.field-cell:last-child { border-right: none; }
+.field-cell .bits { display: block; font-size: 0.6rem; opacity: 0.85; font-family: "SF Mono", monospace; }
+.field-legend {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+.field-legend li { margin-left: 16px; }
+
+/* ===== Journey Section ===== */
+.journey-section {
+  margin-top: 32px;
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  padding: 24px;
+}
+.journey-section h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.journey-section > p {
+  color: var(--ink-2);
+  font-size: 0.88rem;
+  margin-bottom: 18px;
+}
+.journey-map {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.jdevice {
+  flex: 1;
+  min-width: 140px;
+  text-align: center;
+  padding: 14px 10px;
+  border-radius: 10px;
+  border: 2px solid var(--line);
+  background: #f8fafc;
+  transition: all 0.3s;
+  position: relative;
+}
+.jdevice.highlight {
+  border-color: var(--accent);
+  background: #eff6ff;
+  box-shadow: 0 4px 16px rgba(59,130,246,0.15);
+}
+.jdevice .icon { font-size: 1.5rem; margin-bottom: 6px; }
+.jdevice .name { font-weight: 700; font-size: 0.88rem; }
+.jdevice .layers {
+  font-size: 0.7rem;
+  color: var(--ink-3);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.jdevice .action {
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+}
+.jlink {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  color: var(--ink-3);
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+/* ===== Info Cards ===== */
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 24px;
+}
+@media (max-width: 700px) { .info-grid { grid-template-columns: 1fr; } }
+.info-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  padding: 16px;
+}
+.info-card h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 6px; }
+.info-card p { font-size: 0.8rem; color: var(--ink-2); line-height: 1.6; }
+
+/* ===== Status Bar ===== */
+.status-bar {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  text-align: center;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.3s;
+}
+.status-bar.busy { background: #fef3c7; color: #92400e; }
+
+/* ===== Footer note ===== */
+.footer-note {
+  text-align: center;
+  margin-top: 30px;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <h1>网络分层可视化 <span class="en">Network Layering Visualizer</span></h1>
+  <p>看清一个 HTTP 报文如何逐层"穿上"头部，变成比特流，再在另一端逐层"脱下"</p>
+</header>
+
+<div class="container">
+
+  <!-- ===== Main Visualizer ===== -->
+  <div class="viz-wrap">
+
+    <!-- Layer Stack Animation -->
+    <div class="stack-card">
+      <div class="stack-title">发送方协议栈 · 逐层封装</div>
+
+      <div class="layer-row" id="row-app" data-layer="app">
+        <span class="layer-label">应用层<span class="en">Application</span></span>
+        <div class="packet-area">
+          <span class="seg seg-app" id="seg-http" data-tip="HTTP 请求报文">HTTP 报文</span>
+        </div>
+      </div>
+      <div class="dir-arrow">▼ 加 TCP 头</div>
+
+      <div class="layer-row" id="row-tcp" data-layer="tcp">
+        <span class="layer-label">传输层<span class="en">Transport</span></span>
+        <div class="packet-area">
+          <span class="seg seg-tcp" id="seg-tcp" data-tip="TCP 头部 (20字节)">TCP 头</span>
+          <span class="seg seg-app" id="seg-http2" data-tip="HTTP 报文 (作为 TCP 载荷)">HTTP 报文</span>
+        </div>
+      </div>
+      <div class="dir-arrow">▼ 加 IP 头</div>
+
+      <div class="layer-row" id="row-ip" data-layer="ip">
+        <span class="layer-label">网络层<span class="en">Network</span></span>
+        <div class="packet-area">
+          <span class="seg seg-ip" id="seg-ip" data-tip="IPv4 头部 (20字节)">IP 头</span>
+          <span class="seg seg-tcp" id="seg-tcp2" data-tip="TCP 段 (作为 IP 载荷)">TCP 段</span>
+        </div>
+      </div>
+      <div class="dir-arrow">▼ 加 以太网帧头/帧尾</div>
+
+      <div class="layer-row" id="row-eth" data-layer="eth">
+        <span class="layer-label">链路层<span class="en">Data Link</span></span>
+        <div class="packet-area">
+          <span class="seg seg-eth" id="seg-eth" data-tip="帧头: MAC地址+类型">帧头</span>
+          <span class="seg seg-ip" id="seg-ip2" data-tip="IP 数据报 (作为帧载荷)">IP 包</span>
+          <span class="seg seg-eth" id="seg-fcs" data-tip="帧尾: FCS 校验">FCS</span>
+        </div>
+      </div>
+      <div class="dir-arrow">▼ 编码为比特</div>
+
+      <div class="layer-row" id="row-phy" data-layer="phy">
+        <span class="layer-label">物理层<span class="en">Physical</span></span>
+        <div class="packet-area">
+          <span class="seg seg-phy" id="seg-bits" data-tip="010101... 电压/光信号">01001010 01001000 01010100 01110010 01100001 01101110…</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn btn-primary" id="btn-down">▼ 发送：逐层封装</button>
+        <button class="btn btn-secondary" id="btn-up" disabled>▲ 接收：逐层解封装</button>
+        <button class="btn btn-secondary" id="btn-reset">重置</button>
+      </div>
+
+      <div class="status-bar" id="status">点击「发送」开始演示，或点击任意一层查看详情</div>
+    </div>
+
+    <!-- Detail Panel -->
+    <div class="detail-card" id="detail-panel">
+      <!-- Filled by JS -->
+    </div>
+  </div>
+
+  <!-- ===== Packet Journey ===== -->
+  <div class="journey-section">
+    <h2>数据包跨网络旅程</h2>
+    <p>不同网络设备只在特定层次"拆开"数据包处理——交换机只看链路层，路由器看到网络层，只有端主机一路解到应用层。</p>
+    <div class="journey-map" id="journey-map">
+      <div class="jdevice" id="dev-pc1">
+        <div class="icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.8"><rect x="2" y="4" width="20" height="13" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+        <div class="name">主机 PC1</div>
+        <div class="layers">应用→传输→网络→链路→物理<br>完整协议栈</div>
+        <div class="action">封装数据，发送帧</div>
+      </div>
+      <div class="jlink">→</div>
+      <div class="jdevice" id="dev-sw">
+        <div class="icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="7" cy="10" r="0.8" fill="#475569"/><circle cx="11" cy="10" r="0.8" fill="#475569"/><circle cx="15" cy="10" r="0.8" fill="#475569"/><line x1="7" y1="14" x2="17" y2="14"/></svg></div>
+        <div class="name">交换机</div>
+        <div class="layers">仅到链路层<br>(拆开帧头看 MAC)</div>
+        <div class="action">读 MAC 地址，转发帧</div>
+      </div>
+      <div class="jlink">→</div>
+      <div class="jdevice" id="dev-r1">
+        <div class="icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.8"><rect x="3" y="8" width="18" height="10" rx="2"/><circle cx="7.5" cy="13" r="1" fill="#475569"/><circle cx="12" cy="13" r="1" fill="#475569"/><path d="M6 8c1-2 4-3 6-3s5 1 6 3"/></svg></div>
+        <div class="name">路由器 R1</div>
+        <div class="layers">到网络层<br>(拆开 IP 头看 IP)</div>
+        <div class="action">读 IP 地址，查路由表</div>
+      </div>
+      <div class="jlink">→</div>
+      <div class="jdevice" id="dev-r2">
+        <div class="icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.8"><rect x="3" y="8" width="18" height="10" rx="2"/><circle cx="7.5" cy="13" r="1" fill="#475569"/><circle cx="12" cy="13" r="1" fill="#475569"/><path d="M6 8c1-2 4-3 6-3s5 1 6 3"/></svg></div>
+        <div class="name">路由器 R2</div>
+        <div class="layers">到网络层<br>(重新封装帧头)</div>
+        <div class="action">换帧头，转发到下一跳</div>
+      </div>
+      <div class="jlink">→</div>
+      <div class="jdevice" id="dev-pc2">
+        <div class="icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="17" x2="12" y2="20"/></svg></div>
+        <div class="name">主机 PC2</div>
+        <div class="layers">物理→链路→网络→传输→应用<br>完整协议栈</div>
+        <div class="action">逐层解封，交付数据</div>
+      </div>
+    </div>
+    <div class="controls" style="margin-top:14px;">
+      <button class="btn btn-secondary" id="btn-journey">▶ 播放数据包旅程</button>
+    </div>
+  </div>
+
+  <!-- ===== Key Concepts ===== -->
+  <div class="info-grid">
+    <div class="info-card">
+      <h3>每层只加自己的头</h3>
+      <p>发送方每往下走一层，就给数据<b>外面包上本层的头部</b>（和尾部）。上层的数据对下层来说只是"载荷"，下层不关心里面装了什么——这就是<b>封装</b>。</p>
+    </div>
+    <div class="info-card">
+      <h3>对等层通信</h3>
+      <p>主机 A 的传输层和主机 B 的传输层"对话"，但它们之间没有直接连接。通信靠下层提供服务——这就是<b>分层的核心思想</b>：每层只和相邻层打交道。</p>
+    </div>
+    <div class="info-card">
+      <h3>不同设备，不同深度</h3>
+      <p>交换机只拆到链路层（看 MAC），路由器拆到网络层（看 IP），端主机才一路拆到应用层。<b>协议栈的深度决定了设备的"智商"</b>。</p>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    交互式教学演示 · TCP/IP 五层模型 · 基于 RFC 标准整理
+  </div>
+</div>
+
+<script>
+// ===== Layer Data =====
+const LAYERS = {
+  app: {
+    title: '应用层',
+    sub: 'Application Layer · 第 5 层',
+    color: '#10b981',
+    duty: '为应用程序提供网络服务，直接面向用户。规定应用数据的格式和语义，是唯一产生用户可读数据的层次。',
+    protocols: ['HTTP/HTTPS', 'DNS', 'FTP', 'SMTP', 'SSH', 'WebSocket'],
+    unit: '报文 Message',
+    unitColor: '#10b981',
+    headerDesc: '应用层没有"头部"——它产生的就是最终数据本身（如 HTTP 请求行 + 头部 + 体）。',
+    fields: null
+  },
+  tcp: {
+    title: '传输层',
+    sub: 'Transport Layer · 第 4 层',
+    color: '#f59e0b',
+    duty: '提供端到端的进程间通信。TCP 保证可靠、有序、不丢；UDP 追求低延迟。通过端口号区分同一台主机上的不同应用。',
+    protocols: ['TCP', 'UDP', 'QUIC'],
+    unit: '段 Segment / 数据报 Datagram',
+    unitColor: '#f59e0b',
+    headerDesc: 'TCP 头部最小 20 字节，包含端口、序号、确认号和控制标志：',
+    fields: {
+      rows: [
+        [{label:'源端口',bits:'16位'},{label:'目的端口',bits:'16位'}],
+        [{label:'序号 Sequence Number',bits:'32位'}],
+        [{label:'确认号 Acknowledgment',bits:'32位'}],
+        [{label:'数据偏移',bits:'4位'},{label:'保留',bits:'6位'},{label:'标志 UAPRSF',bits:'6位'},{label:'窗口',bits:'16位'}],
+        [{label:'校验和 Checksum',bits:'16位'},{label:'紧急指针',bits:'16位'}],
+      ],
+      notes: ['SYN=1 表示建立连接，FIN=1 表示断开', 'ACK=1 表示确认号有效', 'PSH=1 表示尽快交付，RST=1 重置连接']
+    }
+  },
+  ip: {
+    title: '网络层',
+    sub: 'Network Layer · 第 3 层',
+    color: '#ef4444',
+    duty: '实现主机到主机的通信，通过 IP 地址逻辑寻址，路由选择决定数据包走哪条路。只保证"尽力而为"，不保证可靠。',
+    protocols: ['IPv4', 'IPv6', 'ICMP', 'OSPF', 'BGP'],
+    unit: '数据报 Packet / Datagram',
+    unitColor: '#ef4444',
+    headerDesc: 'IPv4 头部最小 20 字节，核心是源 IP 和目的 IP：',
+    fields: {
+      rows: [
+        [{label:'版本',bits:'4位'},{label:'IHL',bits:'4位'},{label:'服务类型 TOS',bits:'8位'}],
+        [{label:'总长度',bits:'16位'}],
+        [{label:'标识 ID',bits:'16位'},{label:'标志+片偏移',bits:'16位'}],
+        [{label:'TTL 生存时间',bits:'8位'},{label:'协议',bits:'8位'},{label:'校验和',bits:'16位'}],
+        [{label:'源 IP 地址',bits:'32位'}],
+        [{label:'目的 IP 地址',bits:'32位'}],
+      ],
+      notes: ['TTL 每经过一个路由器减 1，归 0 则丢弃——防止路由环路', '协议字段: 6=TCP, 17=UDP, 1=ICMP', 'IP 地址 32 位，如 192.168.1.1']
+    }
+  },
+  eth: {
+    title: '链路层',
+    sub: 'Data Link Layer · 第 2 层',
+    color: '#8b5cf6',
+    duty: '在同一个物理网络（局域网）内，通过 MAC 地址将帧从一个节点送到相邻节点。负责帧定界、差错检测（FCS）和介质访问控制。',
+    protocols: ['Ethernet', 'Wi-Fi 802.11', 'PPP', 'ARP'],
+    unit: '帧 Frame',
+    unitColor: '#8b5cf6',
+    headerDesc: '以太网帧结构（DIX v2）：',
+    fields: {
+      rows: [
+        [{label:'目的 MAC',bits:'48位'},{label:'源 MAC',bits:'48位'}],
+        [{label:'类型 Type',bits:'16位'},{label:'数据载荷',bits:'46~1500字节'}],
+        [{label:'FCS 帧校验',bits:'32位'}],
+      ],
+      notes: ['MAC 地址 48 位，如 aa:bb:cc:dd:ee:ff，烧录在网卡上', '类型字段: 0x0800=IPv4, 0x0806=ARP', 'MTU 最大传输单元 = 1500 字节']
+    }
+  },
+  phy: {
+    title: '物理层',
+    sub: 'Physical Layer · 第 1 层',
+    color: '#64748b',
+    duty: '在物理介质上传输原始比特流。定义电气特性、电压、频率、接口形状——把 0/1 变成电压变化、光脉冲或无线电波。',
+    protocols: ['RJ-45 / 双绞线', '光纤', 'Wi-Fi 射频', 'RS-232'],
+    unit: '比特 Bit',
+    unitColor: '#64748b',
+    headerDesc: '物理层没有"头部"概念——它只负责把 0 和 1 一个一个发出去。',
+    fields: null
+  }
+};
+
+// ===== Step Definitions =====
+const downSteps = [
+  { row: 'row-app', segs: ['seg-http'], msg: '应用层：生成 HTTP 请求报文（如 GET /index.html）', layer: 'app' },
+  { row: 'row-tcp', segs: ['seg-tcp', 'seg-http2'], msg: '传输层：加 TCP 头（端口、序号），HTTP 报文变成 TCP 段', layer: 'tcp' },
+  { row: 'row-ip', segs: ['seg-ip', 'seg-tcp2'], msg: '网络层：加 IP 头（源 IP、目的 IP），TCP 段变成 IP 数据报', layer: 'ip' },
+  { row: 'row-eth', segs: ['seg-eth', 'seg-ip2', 'seg-fcs'], msg: '链路层：加以太网帧头（MAC 地址）和帧尾（FCS 校验），变成帧', layer: 'eth' },
+  { row: 'row-phy', segs: ['seg-bits'], msg: '物理层：帧编码为 010101... 比特流，通过网线/光纤发送出去', layer: 'phy' },
+];
+const upSteps = [...downSteps].reverse();
+
+// ===== DOM Refs =====
+const $ = id => document.getElementById(id);
+const btnDown = $('btn-down'), btnUp = $('btn-up'), btnReset = $('btn-reset');
+const statusEl = $('status');
+const detailPanel = $('detail-panel');
+
+// ===== Render Detail Panel =====
+function renderDetail(layerKey) {
+  const L = LAYERS[layerKey];
+  let html = `
+    <div class="detail-head">
+      <span class="detail-dot" style="background:${L.color}"></span>
+      <div>
+        <div class="detail-title">${L.title}</div>
+        <div class="detail-sub">${L.sub}</div>
+      </div>
+    </div>
+    <div class="detail-section">
+      <h4>核心职责</h4>
+      <p>${L.duty}</p>
+    </div>
+    <div class="detail-section">
+      <h4>典型协议</h4>
+      <div class="protocol-tags">${L.protocols.map(p=>`<span class="proto-tag">${p}</span>`).join('')}</div>
+    </div>
+    <div class="detail-section">
+      <h4>数据单位</h4>
+      <span class="data-unit" style="background:${L.unitColor}">${L.unit}</span>
+    </div>
+  `;
+  if (L.fields) {
+    html += `<div class="detail-section">
+      <h4>头部结构</h4>
+      <p style="margin-bottom:6px;">${L.headerDesc}</p>
+      <div class="field-diagram">`;
+    L.fields.rows.forEach((row, ri) => {
+      html += '<div class="field-row">';
+      row.forEach(cell => {
+        const widthPct = (cell.bits.match(/(\d+)/)?.[1] || 100);
+        html += `<div class="field-cell" style="background:${L.color}; flex:${widthPct}">
+          ${cell.label}<span class="bits">${cell.bits}</span>
+        </div>`;
+      });
+      html += '</div>';
+    });
+    html += `</div><ul class="field-legend">`;
+    L.fields.notes.forEach(n => html += `<li>${n}</li>`);
+    html += `</ul></div>`;
+  } else {
+    html += `<div class="detail-section">
+      <h4>头部结构</h4>
+      <p>${L.headerDesc}</p>
+    </div>`;
+  }
+  detailPanel.innerHTML = html;
+}
+
+// ===== Default detail =====
+renderDetail('tcp');
+
+// ===== Layer click to show detail =====
+document.querySelectorAll('.layer-row').forEach(row => {
+  row.addEventListener('click', () => {
+    document.querySelectorAll('.layer-row').forEach(r => r.classList.remove('active'));
+    row.classList.add('active');
+    renderDetail(row.dataset.layer);
+  });
+});
+
+// ===== Animation Runner =====
+let running = false;
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function run(steps, btnA, btnB, direction) {
+  if (running) return;
+  running = true;
+  btnA.disabled = true; btnB.disabled = true;
+  statusEl.classList.add('busy');
+
+  // Reset
+  document.querySelectorAll('.seg').forEach(e => e.classList.remove('show'));
+  document.querySelectorAll('.layer-row').forEach(e => e.classList.remove('active'));
+  await sleep(200);
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const row = $(step.row);
+    row.classList.add('active');
+    renderDetail(step.layer);
+    statusEl.textContent = step.msg;
+
+    step.segs.forEach((id, j) => {
+      setTimeout(() => { const el = $(id); if(el) el.classList.add('show'); }, j * 200);
+    });
+    await sleep(800);
+    row.classList.remove('active');
+  }
+
+  if (direction === 'down') {
+    statusEl.textContent = '封装完成！数据包已变成比特流发送到网络上。点击「接收」看另一端如何解封装。';
+    btnUp.disabled = false;
+  } else {
+    statusEl.textContent = '解封装完成！数据已还原为 HTTP 报文，交付给应用程序处理。';
+    btnDown.disabled = false;
+  }
+  statusEl.classList.remove('busy');
+  running = false;
+}
+
+btnDown.onclick = () => run(downSteps, btnDown, btnUp, 'down');
+btnUp.onclick   = () => run(upSteps, btnUp, btnDown, 'up');
+btnReset.onclick = () => {
+  if (running) return;
+  document.querySelectorAll('.seg').forEach(e => e.classList.remove('show'));
+  document.querySelectorAll('.layer-row').forEach(e => e.classList.remove('active'));
+  statusEl.textContent = '已重置。点击「发送」开始演示。';
+  btnDown.disabled = false; btnUp.disabled = true;
+  renderDetail('tcp');
+};
+
+// ===== Journey Animation =====
+const btnJourney = $('btn-journey');
+btnJourney.onclick = async () => {
+  const devs = ['dev-pc1','dev-sw','dev-r1','dev-r2','dev-pc2'];
+  btnJourney.disabled = true;
+  for (const id of devs) {
+    document.querySelectorAll('.jdevice').forEach(d => d.classList.remove('highlight'));
+    $(id).classList.add('highlight');
+    await sleep(900);
+  }
+  await sleep(500);
+  btnJourney.disabled = false;
+};
+
+// ===== Auto-play on load =====
+window.addEventListener('load', async () => {
+  await sleep(600);
+  run(downSteps, btnDown, btnUp, 'down');
+});
+</script>
+</body>
+</html>
